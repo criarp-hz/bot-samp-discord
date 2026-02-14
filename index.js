@@ -18,7 +18,7 @@ client.once('ready', () => {
     console.log(`[Bot] Online como ${client.user.tag}`);
 });
 
-// WebSocket server para mods Lua
+// WebSocket server
 const wss = new WebSocket.Server({ port: 12345 });
 wss.on('connection', ws => {
     console.log('[Bot] Mod Lua conectado');
