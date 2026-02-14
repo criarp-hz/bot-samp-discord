@@ -1,6 +1,4 @@
-// index.js
 const express = require("express");
-const bodyParser = require("body-parser");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
@@ -11,36 +9,35 @@ const client = new Client({
 });
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-// Armazena mensagens do SAMP para enviar para o Lua
-let messages = [];
-let lastID = 0;
+let messagesForSAMP = []; // Fila de mensagens do Discord para o Jogo
 
-// Recebe mensagens do Lua (SAMP)
+// Quando alguém digita no Discord
+client.on("messageCreate", (message) => {
+    if (message.author.bot || message.channel.id !== DISCORD_CHANNEL_ID) return;
+    
+    // Adiciona na fila para o SAMP buscar
+    messagesForSAMP.push({ text: message.content });
+});
+
+// SAMP envia mensagem para o Discord
 app.post("/message", (req, res) => {
     const { type, text } = req.body;
     const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
-    if (type === "chat" && text) {
-        if(channel) channel.send(`💬 [SAMP] ${text}`);
-        messages.push({id: ++lastID, text}); // armazena para Lua buscar
-    } else if (type === "status" && text) {
-        if(channel) channel.send(`ℹ️ ${text}`);
+    
+    if (channel && text) {
+        const prefix = type === "status" ? "ℹ️" : "💬 [SAMP]";
+        channel.send(`${prefix} ${text}`);
     }
     res.sendStatus(200);
 });
 
-// Endpoint que o Lua vai consultar para receber mensagens
+// SAMP busca mensagens novas do Discord
 app.get("/fetch", (req, res) => {
-    res.json({messages});
-});
-
-client.once("ready", () => {
-    console.log(`Bot online: ${client.user.tag}`);
+    res.json({ messages: messagesForSAMP });
+    messagesForSAMP = []; // Limpa a fila após o envio
 });
 
 client.login(TOKEN);
-
-// Inicia servidor HTTP
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor HTTP rodando na porta ${PORT}`));
+app.listen(process.env.PORT || 3000, () => console.log("Servidor rodando!"));
