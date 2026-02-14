@@ -1,38 +1,46 @@
-const WebSocket = require('ws');
-const { Client, GatewayIntentBits } = require('discord.js');
+// index.js
+const express = require("express");
+const bodyParser = require("body-parser");
+const { Client, GatewayIntentBits } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
 const DISCORD_CHANNEL_ID = '1472065290929180764';
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-let luaSockets = [];
+const app = express();
+app.use(bodyParser.json());
 
-client.once('ready', () => {
-    console.log(`[Bot] Online como ${client.user.tag}`);
+// Armazena mensagens do SAMP para enviar para o Lua
+let messages = [];
+let lastID = 0;
+
+// Recebe mensagens do Lua (SAMP)
+app.post("/message", (req, res) => {
+    const { type, text } = req.body;
+    const channel = client.channels.cache.get(DISCORD_CHANNEL_ID);
+    if (type === "chat" && text) {
+        if(channel) channel.send(`💬 [SAMP] ${text}`);
+        messages.push({id: ++lastID, text}); // armazena para Lua buscar
+    } else if (type === "status" && text) {
+        if(channel) channel.send(`ℹ️ ${text}`);
+    }
+    res.sendStatus(200);
 });
 
-// WebSocket server para receber mensagens do mod Lua
-const wss = new WebSocket.Server({ port: 12345 });
-wss.on('connection', ws => {
-    console.log('[Bot] Mod Lua conectado');
-    luaSockets.push(ws);
+// Endpoint que o Lua vai consultar para receber mensagens
+app.get("/fetch", (req, res) => {
+    res.json({messages});
+});
 
-    ws.on('message', msg => {
-        const canal = client.channels.cache.get(DISCORD_CHANNEL_ID);
-        if(canal) canal.send(`💬 [SAMP] ${msg}`);
-    });
-
-    ws.on('close', () => {
-        luaSockets = luaSockets.filter(s => s !== ws);
-        console.log('[Bot] Mod Lua desconectado');
-    });
+client.once("ready", () => {
+    console.log(`Bot online: ${client.user.tag}`);
 });
 
 client.login(TOKEN);
+
+// Inicia servidor HTTP
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor HTTP rodando na porta ${PORT}`));
