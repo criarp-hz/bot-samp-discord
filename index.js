@@ -3,33 +3,38 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-const TOKEN = 'SEU_TOKEN_AQUI';
-const CLIENT_ID = 'SEU_CLIENT_ID';
+// O bot vai pegar o TOKEN direto das variáveis da Railway
+const TOKEN = process.env.TOKEN; 
+const CLIENT_ID = 'SEU_ID_DO_BOT_AQUI'; 
 const CHANNEL_ID = '1472065290929180764';
 
 let messagesForSAMP = [];
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({ 
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
+});
 
-// Comandos de Barra (Slash Commands)
+// Comandos de Barra
 const commands = [
-    new SlashCommandBuilder().setName('mshz').setDescription('Ativa integracao com a cidade'),
-    new SlashCommandBuilder().setName('ms').setDescription('Envia comando/mensagem para o jogo').addStringOption(opt => opt.setName('texto').setDescription('O que enviar').setRequired(true))
+    new SlashCommandBuilder().setName('mshz').setDescription('Ligar integracao'),
+    new SlashCommandBuilder().setName('ms').setDescription('Enviar comando ao jogo')
+        .addStringOption(opt => opt.setName('texto').setDescription('Mensagem ou /comando').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
-(async () => { try { await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); } catch (e) { console.error(e); } })();
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    await interaction.deferReply({ ephemeral: true }); // ESSENCIAL PARA NAO DAR ERRO
+
+    // RESOLVE O ERRO "O APLICATIVO NAO RESPONDEU"
+    await interaction.reply({ content: '✅ Processando...', ephemeral: true });
 
     if (interaction.commandName === 'mshz') {
-        await interaction.editReply("✅ Comando de ativacao enviado para a cidade!");
+        await interaction.followUp({ content: 'Integracao pronta!', ephemeral: true });
     } else if (interaction.commandName === 'ms') {
-        const txt = interaction.options.getString('texto');
-        messagesForSAMP.push({ text: txt });
-        await interaction.editReply(`Enviando para o SAMP: ${txt}`);
+        const msg = interaction.options.getString('texto');
+        messagesForSAMP.push({ text: msg });
+        await interaction.followUp({ content: `Enviado: ${msg}`, ephemeral: true });
     }
 });
 
