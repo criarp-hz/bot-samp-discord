@@ -1,7 +1,6 @@
 const {
     Client,
     GatewayIntentBits,
-    Partials,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
@@ -14,8 +13,10 @@ const {
 } = require("discord.js");
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
-    partials: [Partials.Channel]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers
+    ]
 });
 
 const TOKEN = "SEU_TOKEN_AQUI";
@@ -32,12 +33,6 @@ const CARGOS = {
     coordenador: "ID_COORDENADOR"
 };
 
-const HIERARQUIA = [
-    CARGOS.moderador,
-    CARGOS.administrador,
-    CARGOS.coordenador
-];
-
 function dataHora() {
     return new Date().toLocaleString("pt-BR");
 }
@@ -45,7 +40,6 @@ function dataHora() {
 async function aplicarCargo(member, roleId) {
     await member.roles.add(roleId);
 
-    // Admin ganha moderador automático
     if (roleId === CARGOS.administrador) {
         if (!member.roles.cache.has(CARGOS.moderador)) {
             await member.roles.add(CARGOS.moderador);
@@ -54,44 +48,54 @@ async function aplicarCargo(member, roleId) {
 }
 
 client.once("ready", async () => {
-    console.log(`✅ Bot online: ${client.user.tag}`);
+    console.log(`✅ Online: ${client.user.tag}`);
 
-    const canal = await client.channels.fetch(CANAL_REGISTRO);
+    try {
+        const canal = await client.channels.fetch(CANAL_REGISTRO);
 
-    const embed = new EmbedBuilder()
-        .setTitle("📋 Painel de Registro")
-        .setDescription("Clique no botão abaixo para iniciar seu registro.")
-        .setColor("Blue");
+        const embed = new EmbedBuilder()
+            .setTitle("📋 Painel de Registro")
+            .setDescription("Clique no botão abaixo para iniciar seu registro.")
+            .setColor("Blue");
 
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId("registrar")
-            .setLabel("Fazer Registro")
-            .setStyle(ButtonStyle.Primary)
-    );
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("registrar")
+                .setLabel("Fazer Registro")
+                .setStyle(ButtonStyle.Primary)
+        );
 
-    const mensagens = await canal.messages.fetch({ limit: 10 });
-    const existe = mensagens.find(m => m.author.id === client.user.id);
+        const mensagens = await canal.messages.fetch({ limit: 10 });
+        const existe = mensagens.find(m => m.author.id === client.user.id);
 
-    if (!existe) {
-        canal.send({ embeds: [embed], components: [row] });
+        if (!existe) {
+            await canal.send({
+                embeds: [embed],
+                components: [row]
+            });
+        }
+
+    } catch (err) {
+        console.log("Erro ao enviar painel:", err);
     }
 });
 
 client.on(Events.GuildMemberAdd, async member => {
     try {
         await member.roles.add(CARGO_AUTO);
-    } catch {}
+    } catch (e) {
+        console.log("Erro cargo auto:", e);
+    }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
 
-    // BOTÃO REGISTRO
+    // BOTÃO REGISTRAR
     if (interaction.isButton() && interaction.customId === "registrar") {
 
         const modal = new ModalBuilder()
             .setCustomId("modal_registro")
-            .setTitle("Registro de Staff");
+            .setTitle("Registro Staff");
 
         const usuario = new TextInputBuilder()
             .setCustomId("usuario")
@@ -120,7 +124,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return interaction.showModal(modal);
     }
 
-    // ENVIO REGISTRO
+    // ENVIO MODAL
     if (interaction.isModalSubmit() && interaction.customId === "modal_registro") {
 
         const usuario = interaction.fields.getTextInputValue("usuario");
@@ -168,12 +172,12 @@ client.on(Events.InteractionCreate, async interaction => {
         const userId = interaction.customId.split("_")[1];
         const member = await interaction.guild.members.fetch(userId);
 
+        await aplicarCargo(member, CARGOS.moderador);
+
         const embed = new EmbedBuilder()
             .setTitle("✅ Registro Aprovado")
-            .setDescription(`Seu registro foi aprovado por ${interaction.user}.`)
-            .addFields(
-                { name: "Data", value: dataHora() }
-            )
+            .setDescription(`Aprovado por ${interaction.user}`)
+            .addFields({ name: "Data", value: dataHora() })
             .setColor("Green");
 
         const painel = new ActionRowBuilder().addComponents(
@@ -187,8 +191,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 .setStyle(ButtonStyle.Danger)
         );
 
-        await aplicarCargo(member, CARGOS.moderador);
-
         const canalResposta = await client.channels.fetch(CANAL_RESPOSTA);
 
         await canalResposta.send({
@@ -197,14 +199,12 @@ client.on(Events.InteractionCreate, async interaction => {
             components: [painel]
         });
 
-        try {
-            await member.send({ embeds: [embed] });
-        } catch {}
+        try { await member.send({ embeds: [embed] }); } catch {}
 
         await interaction.message.delete();
 
         return interaction.reply({
-            content: "✅ Registro aprovado com sucesso.",
+            content: "✅ Aprovado.",
             ephemeral: true
         });
     }
@@ -217,10 +217,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const embed = new EmbedBuilder()
             .setTitle("❌ Registro Recusado")
-            .setDescription(`Seu registro foi recusado por ${interaction.user}.`)
-            .addFields(
-                { name: "Data", value: dataHora() }
-            )
+            .setDescription(`Recusado por ${interaction.user}`)
+            .addFields({ name: "Data", value: dataHora() })
             .setColor("Red");
 
         const canalResposta = await client.channels.fetch(CANAL_RESPOSTA);
@@ -230,14 +228,12 @@ client.on(Events.InteractionCreate, async interaction => {
             embeds: [embed]
         });
 
-        try {
-            await member.send({ embeds: [embed] });
-        } catch {}
+        try { await member.send({ embeds: [embed] }); } catch {}
 
         await interaction.message.delete();
 
         return interaction.reply({
-            content: "❌ Registro recusado.",
+            content: "❌ Recusado.",
             ephemeral: true
         });
     }
@@ -248,41 +244,90 @@ client.on(Events.InteractionCreate, async interaction => {
         const userId = interaction.customId.split("_")[1];
         const member = await interaction.guild.members.fetch(userId);
 
-        await member.kick("Remoção da staff");
+        await member.kick("Remoção Staff");
 
         return interaction.reply({
-            content: "🚫 Membro removido da staff.",
+            content: "🚫 Membro removido.",
             ephemeral: true
         });
     }
 
-    // EDITAR
+    // EDITAR MENU
     if (interaction.isButton() && interaction.customId.startsWith("editar_")) {
 
         const userId = interaction.customId.split("_")[1];
 
         const menu = new StringSelectMenuBuilder()
-            .setCustomId(`menu_editar_${userId}`)
-            .setPlaceholder("Selecione uma opção")
+            .setCustomId(`menu_${userId}`)
+            .setPlaceholder("Selecione")
             .addOptions([
-                {
-                    label: "Mudar Cargo",
-                    value: "cargo"
-                },
-                {
-                    label: "Mudar Apelido",
-                    value: "nick"
-                }
+                { label: "Mudar Cargo", value: "cargo" },
+                { label: "Mudar Apelido", value: "nick" }
             ]);
 
         const row = new ActionRowBuilder().addComponents(menu);
 
         return interaction.reply({
-            content: "Selecione o que deseja editar:",
+            content: "Escolha uma opção:",
             components: [row],
             ephemeral: true
         });
     }
 
+    // MENU SELEÇÃO
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("menu_")) {
+
+        const userId = interaction.customId.split("_")[1];
+        const escolha = interaction.values[0];
+
+        const member = await interaction.guild.members.fetch(userId);
+
+        if (escolha === "nick") {
+
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_nick_${userId}`)
+                .setTitle("Alterar Apelido");
+
+            const input = new TextInputBuilder()
+                .setCustomId("novo_nick")
+                .setLabel("Novo Apelido")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(input)
+            );
+
+            return interaction.showModal(modal);
+        }
+
+        if (escolha === "cargo") {
+
+            await aplicarCargo(member, CARGOS.administrador);
+
+            return interaction.reply({
+                content: "✅ Cargo atualizado.",
+                ephemeral: true
+            });
+        }
+    }
+
+    // MODAL NICK
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_nick_")) {
+
+        const userId = interaction.customId.split("_")[2];
+        const novoNick = interaction.fields.getTextInputValue("novo_nick");
+
+        const member = await interaction.guild.members.fetch(userId);
+
+        await member.setNickname(novoNick);
+
+        return interaction.reply({
+            content: "✅ Apelido alterado.",
+            ephemeral: true
+        });
+    }
+
 });
+
 client.login(TOKEN);
