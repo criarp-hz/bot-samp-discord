@@ -1,97 +1,53 @@
-const {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  REST,
-  Routes,
-  SlashCommandBuilder,
-  ActivityType
+const { 
+  Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
+  ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, 
+  TextInputStyle, Collection 
 } = require("discord.js");
 
-// ========= CONFIG =========
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+});
 
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
 
+// ===================== CONFIGURAÇÃO =====================
 const REGISTRO_CANAL = "1472463885620609180";
-const LOG_CANAL = "1472464723738886346";
+const APROVACAO_CANAL = "1472464723738886346";
 const CARGO_AUTOMATICO = "1472054758415138960";
-
 const TAG = "『Ⓗ¹』";
 
 const cargos = {
-  1: { nome: "Ajudante", id: "1472055381713883187" },
-  2: { nome: "Moderador(a)", id: "1472055978911465673" },
-  3: { nome: "Administrador(a)", id: "1472056709349511263" },
-  4: { nome: "Auxiliar", id: "1472057320799338639" },
-  5: { nome: "Coordenador(a)", id: "1472058121529593906" },
-  6: { nome: "Direção", id: "1472058401394655355" }
+  1: { nome: "Ajudante", id: "1472055381713883187", nivel: 1 },
+  2: { nome: "Moderador(a)", id: "1472055978911465673", nivel: 2 },
+  3: { nome: "Administrador(a)", id: "1472056709349511263", nivel: 3 },
+  4: { nome: "Auxiliar", id: "1472057320799338639", nivel: 4 },
+  5: { nome: "Coordenador(a)", id: "1472058121529593906", nivel: 5 },
+  6: { nome: "Direção", id: "1472058401394655355", nivel: 6 }
 };
 
-// ========= ANTI CRASH =========
+const limiteTentativas = 3;
+const tentativas = new Collection();
 
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+// ===================== FUNÇÕES =====================
 
-// ========= CLIENT =========
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
-});
-
-// ========= SLASH =========
-
-const commands = [
-  new SlashCommandBuilder()
-    .setName("painel")
-    .setDescription("Enviar painel de registro")
-].map(c => c.toJSON());
-
-const rest = new REST({ version: "10" }).setToken(TOKEN);
-
-// ========= ONLINE =========
-
-client.once("ready", async () => {
-
-  console.log("✅ Online:", client.user.tag);
-
-  client.user.setPresence({
-    activities: [{ name: "Sistema Staff", type: ActivityType.Watching }],
-    status: "online"
-  });
-
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
-  } catch (err) {
-    console.log(err);
+// Pega nível do usuário baseado nos cargos
+function getNivel(member) {
+  let nivel = 0;
+  for (const key in cargos) {
+    if (member.roles.cache.has(cargos[key].id)) {
+      if (cargos[key].nivel > nivel) nivel = cargos[key].nivel;
+    }
   }
-});
+  return nivel;
+}
 
-// ========= ENTRADA =========
+// Data e hora formatada
+function dataAtual() {
+  return new Date().toLocaleString("pt-BR");
+}
 
-client.on("guildMemberAdd", async (member) => {
-  try {
-    await member.roles.add(CARGO_AUTOMATICO);
-  } catch {}
-});
-
-// ========= FUNÇÃO PAINEL =========
-
+// Envia painel de registro
 async function enviarPainel(guild) {
-
   const canal = guild.channels.cache.get(REGISTRO_CANAL);
   if (!canal) return;
 
@@ -99,56 +55,94 @@ async function enviarPainel(guild) {
     .setColor("#5865F2")
     .setTitle("📋 SISTEMA DE REGISTRO")
     .setDescription(
-`Bem-vindo ao sistema de registro do servidor!
-
-Clique no botão abaixo para realizar seu registro.
-
-Em caso de dúvida procure um responsável do setor.`
+      `Bem-vindo ao sistema de registro do servidor!\n\n` +
+      `Para que tudo funcione corretamente, **selecione e utilize apenas o cargo correspondente ao seu setor atual.**\n\n` +
+      `⚠️ **Usar cargo incorreto pode causar:**\n` +
+      `• Erros no registro\n` +
+      `• Problemas de permissão\n` +
+      `• Penalidades administrativas\n\n` +
+      `✅ Em caso de dúvida, procure um responsável do seu setor.`
     );
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("registrar")
       .setLabel("Registrar-se")
+      .setEmoji("📋")
       .setStyle(ButtonStyle.Primary)
   );
 
   await canal.send({ embeds: [embed], components: [row] });
 }
 
-// ========= INTERAÇÕES =========
+// Registro aceito / promoção
+async function registroAceito(member, cargoInfo, aprovador, nivelAnterior = null) {
+  const embed = new EmbedBuilder()
+    .setColor("#2bff2b")
+    .setTitle("✅ REGISTRO ACEITO / PROMOÇÃO")
+    .addFields(
+      { name: "Usuário", value: `${member}`, inline: true },
+      { name: "Nick", value: member.displayName, inline: true },
+      { name: "Cargo Atual", value: cargoInfo.nome, inline: true },
+      nivelAnterior ? { name: "Cargo Anterior", value: nivelAnterior, inline: true } : {},
+      { name: "Responsável", value: aprovador.user.tag, inline: true },
+      { name: "Data e Hora", value: dataAtual(), inline: false }
+    )
+    .setFooter({ text: "Sistema desenvolvido pela Horizonte Roleplay" });
 
+  const canal = member.guild.channels.cache.get(APROVACAO_CANAL);
+  if(canal) canal.send({ embeds: [embed] });
+}
+
+// Registro recusado
+async function registroRecusado(member, aprovador) {
+  const embed = new EmbedBuilder()
+    .setColor("#ff2b2b")
+    .setTitle("❌ REGISTRO RECUSADO")
+    .addFields(
+      { name: "Usuário", value: `${member}`, inline: true },
+      { name: "Responsável", value: aprovador.user.tag, inline: true },
+      { name: "Data e Hora", value: dataAtual(), inline: false },
+      { name: "Observação", value: "Caso ache que foi um erro, envie novamente o registro." }
+    )
+    .setFooter({ text: "Sistema desenvolvido pela Horizonte Roleplay" });
+
+  const canal = member.guild.channels.cache.get(APROVACAO_CANAL);
+  if(canal) canal.send({ embeds: [embed] });
+}
+
+// ===================== EVENTOS =====================
+
+// Novo membro entra → recebe cargo automático
+client.on("guildMemberAdd", async (member) => {
+  try { await member.roles.add(CARGO_AUTOMATICO); } catch {}
+});
+
+// Bot online → envia painel
+client.once("ready", async () => {
+  console.log("Bot online:", client.user.tag);
+  const guild = client.guilds.cache.first();
+  if(guild) enviarPainel(guild);
+});
+
+// Interações
 client.on("interactionCreate", async (interaction) => {
-
   try {
-
-    // ===== COMANDO /painel =====
-    if (interaction.isChatInputCommand()) {
-
-      if (interaction.commandName === "painel") {
-
-        await interaction.reply({ content: "‎", ephemeral: true });
-
-        enviarPainel(interaction.guild);
-      }
-    }
-
-    // ===== BOTÃO REGISTRAR =====
-    if (interaction.isButton() && interaction.customId === "registrar") {
-
+    // Botão registrar
+    if(interaction.isButton() && interaction.customId === "registrar") {
       const modal = new ModalBuilder()
         .setCustomId("modalRegistro")
-        .setTitle("Registro");
+        .setTitle("Registro de Membro");
 
       const nick = new TextInputBuilder()
         .setCustomId("nick")
-        .setLabel("Nome do personagem")
+        .setLabel("NOME DO SEU PERSONAGEM NA CIDADE")
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
       const cargo = new TextInputBuilder()
         .setCustomId("cargo")
-        .setLabel("Número do cargo (1 a 6)")
+        .setLabel("DIGITE O NÚMERO DO SEU CARGO")
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
@@ -160,92 +154,55 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.showModal(modal);
     }
 
-    // ===== MODAL ENVIO =====
-    if (interaction.isModalSubmit()) {
+    // Submissão do modal
+    if(interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
+      const nick = interaction.fields.getTextInputValue("nick");
+      const cargoNum = interaction.fields.getTextInputValue("cargo");
 
-      if (interaction.customId === "modalRegistro") {
+      const cargoInfo = cargos[cargoNum];
+      if(!cargoInfo) return interaction.reply({ content: "❌ Cargo inválido.", ephemeral: true });
 
-        const nick = interaction.fields.getTextInputValue("nick");
-        const cargoNum = interaction.fields.getTextInputValue("cargo");
+      // Tentativas
+      const userTentativas = tentativas.get(interaction.user.id) || 0;
+      if(userTentativas >= limiteTentativas) {
+        await interaction.user.kick();
+        return interaction.reply({ content: "❌ Limite de tentativas atingido. Você foi expulso.", ephemeral: true });
+      }
+      tentativas.set(interaction.user.id, userTentativas + 1);
 
-        const cargoInfo = cargos[cargoNum];
+      // Enviar para aprovação
+      const canal = client.channels.cache.get(APROVACAO_CANAL);
+      if(!canal) return interaction.reply({ content: "❌ Canal de aprovação não encontrado.", ephemeral: true });
 
-        if (!cargoInfo) {
-          return interaction.reply({
-            content: "Cargo inválido.",
-            ephemeral: true
-          });
-        }
-
-        const canal = client.channels.cache.get(LOG_CANAL);
-
-        const embed = new EmbedBuilder()
-          .setColor("#2b2d31")
-          .setTitle("📥 Novo Registro")
-          .addFields(
-            { name: "Usuário", value: `${interaction.user}` },
-            { name: "Nick", value: nick },
-            { name: "Cargo", value: cargoInfo.nome }
-          );
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
-            .setLabel("Aceitar")
-            .setStyle(ButtonStyle.Success),
-
-          new ButtonBuilder()
-            .setCustomId(`recusar_${interaction.user.id}`)
-            .setLabel("Recusar")
-            .setStyle(ButtonStyle.Danger)
+      const embed = new EmbedBuilder()
+        .setColor("#2b2d31")
+        .setTitle("📥 NOVO REGISTRO")
+        .addFields(
+          { name: "Usuário", value: `${interaction.user}`, inline: true },
+          { name: "Nick", value: nick, inline: true },
+          { name: "Cargo", value: cargoInfo.nome, inline: true },
+          { name: "Data e Hora", value: dataAtual(), inline: false }
         );
 
-        await canal.send({ embeds: [embed], components: [row] });
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder().setCustomId("aceitarRegistro").setLabel("Aceitar").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("recusarRegistro").setLabel("Recusar").setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId("editarRegistro").setLabel("Editar").setStyle(ButtonStyle.Secondary)
+        );
 
-        await interaction.reply({
-          content: "Registro enviado para aprovação.",
-          ephemeral: true
-        });
-      }
+      canal.send({ embeds: [embed], components: [row] });
+      interaction.reply({ content: "✅ Registro enviado para aprovação.", ephemeral: true });
     }
 
-    // ===== ACEITAR =====
-    if (interaction.isButton() && interaction.customId.startsWith("aceitar")) {
+    // Aqui você pode expandir os botões de Aceitar, Recusar, Editar e Remoção
+    // incluindo o sistema de promoção/rebaixamento automático,
+    // mudança de apelido e envio de mensagem administrativa detalhada
 
-      const [, userId, cargoNum, nick] = interaction.customId.split("_");
-
-      const member = await interaction.guild.members.fetch(userId);
-      const cargoInfo = cargos[cargoNum];
-
-      await member.setNickname(`${TAG} ${nick}`).catch(() => {});
-      await member.roles.add(cargoInfo.id).catch(() => {});
-
-      // ADMIN ganha MOD
-      if (cargoNum === "3") {
-        await member.roles.add(cargos[2].id).catch(() => {});
-      }
-
-      await interaction.reply({
-        content: "✅ Registro aprovado.",
-        ephemeral: true
-      });
-    }
-
-    // ===== RECUSAR =====
-    if (interaction.isButton() && interaction.customId.startsWith("recusar")) {
-
-      await interaction.reply({
-        content: "❌ Registro recusado.",
-        ephemeral: true
-      });
-    }
-
-  } catch (err) {
-    console.log("Erro:", err);
+  } catch(err) {
+    console.error("[Erro Interaction]:", err);
   }
-
 });
 
-// ========= LOGIN =========
-
-client.login(TOKEN);
+// ===================== LOGIN =====================
+client.login(TOKEN).catch(console.error);
