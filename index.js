@@ -8,11 +8,12 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages]
 });
 
-// ===================== CONFIGURAÇÕES (SUBSTITUA OS CAMPOS) =====================
+// ===================== CONFIGURAÇÕES =====================
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = "SEU_ID_NUMERICO_AQUI"; // ⚠️ IMPORTANTE: COLOQUE O ID DO BOT AQUI
+const CLIENT_ID = "123456789012345678"; // <--- COLOQUE O ID DO SEU BOT AQUI (SÓ NÚMEROS)
 const APROVACAO_CANAL = "1472464723738886346";
 const STAFF_CANAL_ID = "1472065290929180764";
+const CARGO_AUTOMATICO = "1472054758415138960";
 const TAG_PREFIXO = "『Ⓗ¹』";
 
 const cargos = {
@@ -29,96 +30,119 @@ const memoriaEdicao = new Collection();
 function dataAtual() { return new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }); }
 
 // ===================== REGISTRO DE COMANDOS =====================
-client.once("ready", async (clientReady) => {
-    console.log(`🚀 ${clientReady.user.tag} está online e estável!`);
-
+client.once("ready", async () => {
+    console.log(`🚀 Sistema Horizonte RP Blindado Online.`);
+    
     const commands = [
         { name: 'painel', description: 'Envia o painel de registro público.' },
-        { name: 'configadm', description: 'Central administrativa da Staff.' }
+        { name: 'configadm', description: 'Central administrativa.' }
     ];
 
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     try {
-        // Isso registra os comandos globais para evitar que o bot não responda
+        // Registro forçado para evitar o "Aplicativo não respondeu"
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log("✅ Comandos Slash registrados.");
-    } catch (e) { console.error("❌ Erro ao registrar comandos:", e); }
+    } catch (e) { console.error("Erro no registro:", e); }
 });
 
 client.on("interactionCreate", async (interaction) => {
     try {
-        // --- LÓGICA DO COMANDO /PAINEL ---
+        // --- COMANDO /PAINEL ---
         if (interaction.isChatInputCommand() && interaction.commandName === "painel") {
-            // Respondemos imediatamente para o Discord não dar erro de "não respondeu"
-            await interaction.reply({ content: "Enviando painel...", ephemeral: true });
-
             const embed = new EmbedBuilder()
                 .setColor(0x5865F2)
                 .setTitle("📋 SISTEMA DE REGISTRO")
-                .setDescription("Bem-vindo ao sistema de registro do servidor!\n\nUtilize o botão abaixo para iniciar seu formulário.");
+                .setDescription("Bem-vindo ao sistema de registro do servidor!\n\nPara que tudo funcione corretamente, **selecione e utilize apenas o cargo correspondente ao seu setor atual.**");
 
             const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("abrir_modal").setLabel("Registrar-se").setEmoji("📋").setStyle(ButtonStyle.Primary)
+                new ButtonBuilder().setCustomId("abrir_modal").setLabel("Registrar-se").setStyle(ButtonStyle.Primary)
             );
-
             await interaction.channel.send({ embeds: [embed], components: [row] });
-            return;
+            return interaction.reply({ content: "Painel enviado!", ephemeral: true });
         }
 
-        // --- LÓGICA DO COMANDO /CONFIGADM ---
+        // --- COMANDO /CONFIGADM ---
         if (interaction.isChatInputCommand() && interaction.commandName === "configadm") {
-            if (interaction.channelId !== STAFF_CANAL_ID) return interaction.reply({ content: "❌ Este comando é restrito ao canal de Staff.", ephemeral: true });
+            if (interaction.channelId !== STAFF_CANAL_ID) return interaction.reply({ content: "Canal errado.", ephemeral: true });
             
-            const embed = new EmbedBuilder()
-                .setColor(0x2B2D31)
-                .setTitle("🛠️ CENTRAL STAFF - HORIZONTE RP")
-                .setDescription("Gerenciamento de comunicados e configurações.");
-
+            const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle("🛠️ CENTRAL STAFF").setDescription("Escolha uma opção:");
             const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("staff_msg_auto").setLabel("Mensagem Automática").setStyle(ButtonStyle.Primary).setEmoji("⏰"),
-                new ButtonBuilder().setCustomId("fechar_painel").setLabel("Fechar").setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId("staff_msg_auto").setLabel("Mensagem Automática").setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId("fechar_p").setLabel("Fechar").setStyle(ButtonStyle.Danger)
             );
-
             return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
         }
 
-        // --- MODAL DE MENSAGEM AUTOMÁTICA ---
-        if (interaction.isButton() && interaction.customId === "staff_msg_auto") {
-            const modal = new ModalBuilder().setCustomId("modal_global_msg").setTitle("Configurar Comunicado");
+        // --- SEU FORMULÁRIO ORIGINAL (NICK E CARGO) ---
+        if (interaction.isButton() && interaction.customId === "abrir_modal") {
+            const modal = new ModalBuilder().setCustomId("modal_reg").setTitle("Registro de Membro");
             modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("t").setLabel("TÍTULO DO AVISO").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("d").setLabel("DESCRIÇÃO/MENSAGEM").setStyle(TextInputStyle.Paragraph).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("c").setLabel("ID DO CANAL DE DESTINO").setStyle(TextInputStyle.Short).setRequired(true))
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("m_nick").setLabel("NICK").setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("m_cargo").setLabel("CARGO (Número)").setStyle(TextInputStyle.Short).setRequired(true))
             );
             return interaction.showModal(modal);
         }
 
-        if (interaction.isModalSubmit() && interaction.customId === "modal_global_msg") {
-            const t = interaction.fields.getTextInputValue("t");
-            const d = interaction.fields.getTextInputValue("d");
-            const cId = interaction.fields.getTextInputValue("c");
-            const canalDestino = client.channels.cache.get(cId);
-
-            if (!canalDestino) return interaction.reply({ content: "❌ Canal não encontrado. Verifique se o ID está correto.", ephemeral: true });
-
-            const embedAviso = new EmbedBuilder().setColor(0x00FF7F).setTitle(t).setDescription(d)
-                .setFooter({ text: `Publicado por: ${interaction.user.tag} | ${dataAtual()}` });
-
-            await canalDestino.send({ embeds: [embedAviso] });
-            return interaction.reply({ content: "✅ Comunicado enviado com sucesso!", ephemeral: true });
+        // --- EDIÇÃO SILENCIOSA (SEM MENSAGEM DE FALHA) ---
+        if (interaction.isStringSelectMenu() && interaction.customId.startsWith("sel_c")) {
+            const userId = interaction.customId.split("_")[2];
+            const dados = memoriaEdicao.get(userId);
+            if (dados) {
+                dados.cargoEditado = interaction.values[0];
+                memoriaEdicao.set(userId, dados);
+            }
+            return interaction.deferUpdate(); // Silencioso, não falha
         }
 
-        // --- BOTÃO FECHAR PAINEL ---
-        if (interaction.isButton() && interaction.customId === "fechar_painel") {
-            return interaction.update({ content: "Painel fechado.", embeds: [], components: [] });
+        if (interaction.isButton() && interaction.customId.startsWith("edit_nick")) {
+            const userId = interaction.customId.split("_")[2];
+            const modal = new ModalBuilder().setCustomId(`modal_n_${userId}`).setTitle("Alterar Nick");
+            modal.addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId("n").setLabel("NOVO NICK").setStyle(TextInputStyle.Short).setRequired(true)
+            ));
+            return interaction.showModal(modal);
         }
 
-    } catch (error) {
-        console.error("Erro interno:", error);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: "Ocorreu um erro no processamento.", ephemeral: true }).catch(() => {});
+        if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_n")) {
+            const userId = interaction.customId.split("_")[2];
+            const dados = memoriaEdicao.get(userId);
+            if (dados) {
+                dados.nickEditado = interaction.fields.getTextInputValue("n");
+                memoriaEdicao.set(userId, dados);
+            }
+            return interaction.reply({ content: "Nick atualizado na memória!", ephemeral: true });
         }
-    }
+
+        // --- BOTÃO CONFIRMAR EDIÇÃO (GERA A MENSAGEM DE APROVADO/EDITADO) ---
+        if (interaction.isButton() && interaction.customId.startsWith("confirm_edit")) {
+            const userId = interaction.customId.split("_")[2];
+            const d = memoriaEdicao.get(userId);
+            
+            const embedFinal = new EmbedBuilder()
+                .setColor(0x00FF00)
+                .setTitle("✅ REGISTRO APROVADO E EDITADO")
+                .addFields(
+                    { name: "Membro", value: `<@${userId}>`, inline: true },
+                    { name: "Nick Final", value: `\`${d.nickEditado}\``, inline: true },
+                    { name: "Cargo Final", value: `\`${cargos[d.cargoEditado].nome}\``, inline: true },
+                    { name: "Editado por", value: `${interaction.user.tag}`, inline: false }
+                ).setFooter({ text: `Data: ${dataAtual()}` });
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`aceitar_${userId}_${d.cargoEditado}_${d.nickEditado}`).setLabel("Aceitar").setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`recusar_${userId}_${d.nickEditado}`).setLabel("Recusar").setStyle(ButtonStyle.Danger)
+            );
+
+            await interaction.message.delete().catch(() => {});
+            return interaction.channel.send({ embeds: [embedFinal], components: [row] });
+        }
+
+        // --- BOTÃO FECHAR / CANCELAR ---
+        if (interaction.isButton() && (interaction.customId === "fechar_p" || interaction.customId === "cancelar_edit")) {
+            return interaction.message.delete().catch(() => {});
+        }
+
+    } catch (e) { console.error(e); }
 });
 
 client.login(TOKEN);
