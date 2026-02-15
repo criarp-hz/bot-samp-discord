@@ -10,13 +10,17 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
-  Events,
-  PermissionsBitField
+  Events
 } = require("discord.js");
 
-const TOKEN = process.env.TOKEN || "SEU_TOKEN_AQUI";
+const TOKEN = process.env.TOKEN;
 
 const TAG = "『Ⓗ¹』";
+
+// ================= CANAIS =================
+
+const CANAL_REGISTRO = "1472463885620609180";
+const CANAL_ANALISE = "1472464723738886346";
 
 // ================= CARGOS =================
 
@@ -40,37 +44,67 @@ const HIERARQUIA = [
 // ================= CLIENT =================
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ],
   partials: [Partials.Channel]
 });
 
 // ================= FUNÇÕES =================
 
-function cargoIndex(roleId) {
-  return HIERARQUIA.indexOf(roleId);
-}
-
-function podeGerenciar(executor, alvo) {
-  return cargoIndex(executor) >= cargoIndex(alvo);
-}
-
 function dataHora() {
   return new Date().toLocaleString("pt-BR");
 }
 
-function embedBase(titulo, desc) {
+function cargoIndex(roleId) {
+  return HIERARQUIA.indexOf(roleId);
+}
+
+function maiorCargo(member) {
+  let maior = -1;
+  for (const role of member.roles.cache.values()) {
+    const idx = cargoIndex(role.id);
+    if (idx > maior) maior = idx;
+  }
+  return maior;
+}
+
+function cargoPorNumero(num) {
+  const mapa = {
+    "1": ROLES.AJUDANTE,
+    "2": ROLES.MODERADOR,
+    "3": ROLES.ADMIN,
+    "4": ROLES.COORDENADOR,
+    "5": ROLES.DIRECAO
+  };
+  return mapa[num];
+}
+
+function nomeCargo(roleId) {
+  const nomes = {
+    [ROLES.AJUDANTE]: "Ajudante",
+    [ROLES.MODERADOR]: "Moderador",
+    [ROLES.ADMIN]: "Administrador",
+    [ROLES.COORDENADOR]: "Coordenador(a)",
+    [ROLES.DIRECAO]: "Direção"
+  };
+  return nomes[roleId] || "Cargo";
+}
+
+function embed(t, d, cor = "#2b2d31") {
   return new EmbedBuilder()
-    .setColor("#2b2d31")
-    .setTitle(titulo)
-    .setDescription(desc)
+    .setColor(cor)
+    .setTitle(t)
+    .setDescription(d)
     .setFooter({ text: "Sistema Administrativo Hz" })
     .setTimestamp();
 }
 
 // ================= ONLINE =================
 
-client.once("ready", async () => {
-  console.log(`✅ Online como ${client.user.tag}`);
+client.once("ready", () => {
+  console.log("✅ Bot online:", client.user.tag);
 });
 
 // ================= AUTO ROLE =================
@@ -81,29 +115,29 @@ client.on(Events.GuildMemberAdd, async (member) => {
   } catch {}
 });
 
-// ================= COMANDO /PAINEL =================
+// ================= INTERAÇÕES =================
 
 client.on(Events.InteractionCreate, async (interaction) => {
+
+  // ================= COMANDO /PAINEL =================
 
   if (interaction.isChatInputCommand()) {
 
     if (interaction.commandName === "painel") {
 
-      const embed = new EmbedBuilder()
-        .setColor("#5865F2")
-        .setTitle("📋 SISTEMA DE REGISTRO")
-        .setDescription(`
-Bem-vindo ao sistema de registro do servidor!
+      const painel = embed(
+        "📋 SISTEMA DE REGISTRO",
+        `
+Bem-vindo ao sistema de registro.
 
-Para que tudo funcione corretamente, **selecione e utilize apenas o cargo correspondente ao seu setor atual.**
+Selecione corretamente seu cargo atual.
 
-⚠️ **Usar cargo incorreto pode causar:**
-• Erros no registro  
-• Problemas de permissão  
-• Penalidades administrativas  
+⚠️ Uso incorreto pode gerar penalidades administrativas.
 
-✅ Em caso de dúvida, procure um responsável do seu setor.
-        `);
+Clique no botão abaixo para iniciar seu registro.
+        `,
+        "#5865F2"
+      );
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -114,7 +148,7 @@ Para que tudo funcione corretamente, **selecione e utilize apenas o cargo corres
       );
 
       await interaction.reply({
-        embeds: [embed],
+        embeds: [painel],
         components: [row]
       });
     }
@@ -122,113 +156,130 @@ Para que tudo funcione corretamente, **selecione e utilize apenas o cargo corres
 
   // ================= BOTÃO REGISTRAR =================
 
-  if (interaction.isButton()) {
+  if (interaction.isButton() && interaction.customId === "registrar") {
 
-    if (interaction.customId === "registrar") {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_registro")
+      .setTitle("Registro Staff");
 
-      const modal = new ModalBuilder()
-        .setCustomId("modal_registro")
-        .setTitle("Registro de Staff");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("nick")
+          .setLabel("Nick")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("cargo")
+          .setLabel("Digite o número do cargo")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+      )
+    );
 
-      const nick = new TextInputBuilder()
-        .setCustomId("nick")
-        .setLabel("Nome do seu personagem")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const cargo = new TextInputBuilder()
-        .setCustomId("cargo")
-        .setLabel("Digite o número do cargo")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(nick),
-        new ActionRowBuilder().addComponents(cargo)
-      );
-
-      await interaction.showModal(modal);
-    }
+    await interaction.showModal(modal);
   }
 
   // ================= FORM REGISTRO =================
 
-  if (interaction.isModalSubmit()) {
+  if (interaction.isModalSubmit() && interaction.customId === "modal_registro") {
 
-    if (interaction.customId === "modal_registro") {
+    const nick = interaction.fields.getTextInputValue("nick");
+    const cargoNum = interaction.fields.getTextInputValue("cargo");
 
-      const nick = interaction.fields.getTextInputValue("nick");
-      const cargoNum = interaction.fields.getTextInputValue("cargo");
+    const canal = client.channels.cache.get(CANAL_ANALISE);
 
-      const embed = embedBase(
-        "📨 NOVO REGISTRO",
-        `
+    const embedRegistro = embed(
+      "📨 NOVO REGISTRO SOLICITADO",
+      `
 👤 Usuário: ${interaction.user}
 🏷 Nick: ${nick}
-📌 Cargo solicitado: ${cargoNum}
+📌 Cargo: ${cargoNum}
 
 📅 Data: ${dataHora()}
-        `
-      );
+      `,
+      "#ffaa00"
+    );
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("aprovar_" + cargoNum)
-          .setLabel("Aceitar")
-          .setStyle(ButtonStyle.Success),
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`aprovar_${interaction.user.id}_${cargoNum}_${nick}`)
+        .setLabel("Aceitar")
+        .setStyle(ButtonStyle.Success),
 
-        new ButtonBuilder()
-          .setCustomId("editar_" + cargoNum)
-          .setLabel("Editar")
-          .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`recusar_${interaction.user.id}`)
+        .setLabel("Recusar")
+        .setStyle(ButtonStyle.Danger)
+    );
 
-        new ButtonBuilder()
-          .setCustomId("recusar_" + cargoNum)
-          .setLabel("Recusar")
-          .setStyle(ButtonStyle.Danger)
-      );
+    canal.send({
+      embeds: [embedRegistro],
+      components: [row]
+    });
 
-      await interaction.reply({
-        content: "✅ Registro enviado para análise.",
-        ephemeral: true
-      });
-
-      await interaction.channel.send({
-        embeds: [embed],
-        components: [row]
-      });
-    }
+    await interaction.reply({
+      content: "✅ Registro enviado para análise.",
+      ephemeral: true
+    });
   }
 
   // ================= APROVAR =================
 
   if (interaction.isButton() && interaction.customId.startsWith("aprovar")) {
 
-    const member = interaction.member;
-    const roleId = ROLES.ADMIN; // exemplo
+    const [, userId, cargoNum, nick] = interaction.customId.split("_");
+
+    const guild = interaction.guild;
+    const membro = await guild.members.fetch(userId);
+
+    const roleId = cargoPorNumero(cargoNum);
+
+    if (!roleId) {
+      return interaction.reply({
+        content: "❌ Cargo inválido.",
+        ephemeral: true
+      });
+    }
+
+    const executorNivel = maiorCargo(interaction.member);
+    const alvoNivel = cargoIndex(roleId);
+
+    if (executorNivel < alvoNivel) {
+      return interaction.reply({
+        content: "❌ Você não pode aprovar cargo maior que o seu.",
+        ephemeral: true
+      });
+    }
 
     try {
 
-      await member.roles.add(roleId);
+      await membro.roles.add(roleId);
 
-      // ADMIN ganha MODERADOR
       if (roleId === ROLES.ADMIN) {
-        await member.roles.add(ROLES.MODERADOR);
+        await membro.roles.add(ROLES.MODERADOR);
       }
 
-      await member.setNickname(`${TAG} ${member.user.username}`);
+      await membro.setNickname(`${TAG} ${nick}`);
 
-      const embed = embedBase(
+      const aprovado = embed(
         "✅ REGISTRO APROVADO",
         `
-👤 Usuário: ${member}
+👤 Jogador: ${membro}
+🏷 Nick: ${nick}
+📌 Cargo: ${nomeCargo(roleId)}
+
 👮 Aprovado por: ${interaction.user}
+
 📅 ${dataHora()}
-        `
+        `,
+        "#00ff88"
       );
 
       await interaction.update({
-        embeds: [embed],
+        embeds: [aprovado],
         components: []
       });
 
@@ -241,25 +292,29 @@ Para que tudo funcione corretamente, **selecione e utilize apenas o cargo corres
 
   if (interaction.isButton() && interaction.customId.startsWith("recusar")) {
 
-    const embed = embedBase(
+    const recusado = embed(
       "❌ REGISTRO RECUSADO",
       `
 👮 Responsável: ${interaction.user}
-📅 ${dataHora()}
+
+Seu registro foi recusado.
 
 Caso acredite que seja um erro, envie novamente.
-      `
+
+📅 ${dataHora()}
+      `,
+      "#ff0000"
     );
 
     await interaction.update({
-      embeds: [embed],
+      embeds: [recusado],
       components: []
     });
   }
 
 });
 
-// ================= LOGIN =================
+// ================= ANTI CRASH =================
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
