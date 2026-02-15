@@ -13,6 +13,10 @@ const {
 const express = require("express");
 const app = express();
 
+/* KEEP ALIVE */
+app.get("/", (req, res) => res.send("Bot Online"));
+app.listen(process.env.PORT || 3000);
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -26,7 +30,6 @@ const TOKEN = process.env.TOKEN;
 const REGISTRO_CANAL = "1472463885620609180";
 const APROVACAO_CANAL = "1472464723738886346";
 const CARGO_AUTOMATICO = "1472054758415138960";
-
 const TAG = "『Ⓗ¹』";
 
 /* CARGOS */
@@ -53,20 +56,16 @@ function getNivel(member) {
   return nivel;
 }
 
-/* KEEP ONLINE */
-app.get("/", (req, res) => res.send("Online"));
-app.listen(process.env.PORT || 3000);
-
 /* PAINEL */
 async function enviarPainel(guild) {
+  try {
+    const canal = guild.channels.cache.get(REGISTRO_CANAL);
+    if (!canal) return;
 
-  const canal = guild.channels.cache.get(REGISTRO_CANAL);
-  if (!canal) return;
-
-  const embed = new EmbedBuilder()
-    .setColor("#5865F2")
-    .setTitle("📋 SISTEMA DE REGISTRO")
-    .setDescription(
+    const embed = new EmbedBuilder()
+      .setColor("#5865F2")
+      .setTitle("📋 SISTEMA DE REGISTRO")
+      .setDescription(
 `Bem-vindo ao sistema de registro do servidor!
 
 Para que tudo funcione corretamente, selecione e utilize apenas o cargo correspondente ao seu setor atual.
@@ -77,28 +76,35 @@ Para que tudo funcione corretamente, selecione e utilize apenas o cargo correspo
 • Penalidades administrativas  
 
 ✅ Em caso de dúvida, procure um responsável do seu setor.`
+      );
+
+    const botao = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("registrar")
+        .setLabel("Registrar-se")
+        .setStyle(ButtonStyle.Primary)
     );
 
-  const botao = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("registrar")
-      .setLabel("Registrar-se")
-      .setStyle(ButtonStyle.Primary)
-  );
+    await canal.send({ embeds: [embed], components: [botao] });
 
-  await canal.send({ embeds: [embed], components: [botao] });
+  } catch (e) {
+    console.log("Erro painel:", e);
+  }
 }
 
 /* ENTRAR */
 client.on("guildMemberAdd", async (member) => {
   try {
     await member.roles.add(CARGO_AUTOMATICO);
-  } catch {}
+  } catch (e) {
+    console.log("Erro cargo automático:", e);
+  }
 });
 
 /* READY */
 client.once("clientReady", async () => {
   console.log("Bot Online:", client.user.tag);
+
   const guild = client.guilds.cache.first();
   if (guild) enviarPainel(guild);
 });
@@ -138,13 +144,15 @@ client.on("interactionCreate", async (interaction) => {
     /* ENVIAR REGISTRO */
     if (interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
 
-      await interaction.reply({ content: "📨 Registro enviado!", ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
 
       const nick = interaction.fields.getTextInputValue("nick");
       const cargoNum = interaction.fields.getTextInputValue("cargo");
       const cargoInfo = cargos[cargoNum];
 
-      if (!cargoInfo) return;
+      if (!cargoInfo) {
+        return interaction.editReply("❌ Cargo inválido.");
+      }
 
       const canal = client.channels.cache.get(APROVACAO_CANAL);
 
@@ -176,6 +184,8 @@ client.on("interactionCreate", async (interaction) => {
       );
 
       await canal.send({ embeds: [embed], components: [botoes] });
+
+      await interaction.editReply("📨 Registro enviado com sucesso!");
     }
 
     /* ACEITAR */
@@ -189,7 +199,9 @@ client.on("interactionCreate", async (interaction) => {
       const admNivel = getNivel(interaction.member);
       const cargoInfo = cargos[cargoNum];
 
-      if (!member || !cargoInfo) return;
+      if (!member || !cargoInfo) {
+        return interaction.editReply("Erro ao processar.");
+      }
 
       if (cargoInfo.nivel > admNivel) {
         return interaction.editReply("❌ Você não pode aprovar cargo maior que o seu.");
@@ -214,40 +226,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply(`✅ Registro aprovado para ${member.user.tag}`);
     }
 
-    /* EDITAR */
-    if (interaction.isButton() && interaction.customId.startsWith("editar_")) {
-
-      const [, userId] = interaction.customId.split("_");
-
-      const modal = new ModalBuilder()
-        .setCustomId(`editarModal_${userId}`)
-        .setTitle("Editar Registro");
-
-      const nick = new TextInputBuilder()
-        .setCustomId("nick")
-        .setLabel("Novo Nick")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const cargo = new TextInputBuilder()
-        .setCustomId("cargo")
-        .setLabel("Novo Cargo (Número)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(nick),
-        new ActionRowBuilder().addComponents(cargo)
-      );
-
-      return interaction.showModal(modal);
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("editarModal_")) {
-
-      await interaction.reply({ content: "✏️ Alterações salvas.", ephemeral: true });
-    }
-
     /* RECUSAR */
     if (interaction.isButton() && interaction.customId.startsWith("recusar_")) {
 
@@ -258,14 +236,28 @@ client.on("interactionCreate", async (interaction) => {
     }
 
   } catch (err) {
-    console.log("ERRO:", err);
+    console.log("ERRO INTERAÇÃO:", err);
+
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ Ocorreu um erro interno.",
+          ephemeral: true
+        });
+      }
+    } catch {}
   }
 
 });
 
-/* ANTI CRASH */
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+/* PROTEÇÃO GLOBAL */
+process.on("unhandledRejection", (reason) => {
+  console.log("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.log("Uncaught Exception:", err);
+});
 
 /* LOGIN */
-client.login(TOKEN);
+client.login(TOKEN).catch(console.error);
