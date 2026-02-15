@@ -8,14 +8,13 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  Events,
   REST,
   Routes,
   SlashCommandBuilder,
   ActivityType
 } = require("discord.js");
 
-// ================= CONFIG =================
+// ========= CONFIG =========
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -28,20 +27,20 @@ const CARGO_AUTOMATICO = "1472054758415138960";
 const TAG = "『Ⓗ¹』";
 
 const cargos = {
-  1: { nome: "Ajudante", id: "1472055381713883187", nivel: 1 },
-  2: { nome: "Moderador(a)", id: "1472055978911465673", nivel: 2 },
-  3: { nome: "Administrador(a)", id: "1472056709349511263", nivel: 3 },
-  4: { nome: "Auxiliar", id: "1472057320799338639", nivel: 4 },
-  5: { nome: "Coordenador(a)", id: "1472058121529593906", nivel: 5 },
-  6: { nome: "Direção", id: "1472058401394655355", nivel: 6 }
+  1: { nome: "Ajudante", id: "1472055381713883187" },
+  2: { nome: "Moderador(a)", id: "1472055978911465673" },
+  3: { nome: "Administrador(a)", id: "1472056709349511263" },
+  4: { nome: "Auxiliar", id: "1472057320799338639" },
+  5: { nome: "Coordenador(a)", id: "1472058121529593906" },
+  6: { nome: "Direção", id: "1472058401394655355" }
 };
 
-// ================= PROTEÇÃO ANTI CRASH =================
+// ========= ANTI CRASH =========
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-// ================= CLIENT =================
+// ========= CLIENT =========
 
 const client = new Client({
   intents: [
@@ -50,7 +49,7 @@ const client = new Client({
   ]
 });
 
-// ================= SLASH =================
+// ========= SLASH =========
 
 const commands = [
   new SlashCommandBuilder()
@@ -60,11 +59,11 @@ const commands = [
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-// ================= ONLINE =================
+// ========= ONLINE =========
 
 client.once("ready", async () => {
 
-  console.log("✅ Bot Online:", client.user.tag);
+  console.log("✅ Online:", client.user.tag);
 
   client.user.setPresence({
     activities: [{ name: "Sistema Staff", type: ActivityType.Watching }],
@@ -76,12 +75,12 @@ client.once("ready", async () => {
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-  } catch (e) {
-    console.log(e);
+  } catch (err) {
+    console.log(err);
   }
 });
 
-// ================= ENTRADA =================
+// ========= ENTRADA =========
 
 client.on("guildMemberAdd", async (member) => {
   try {
@@ -89,7 +88,7 @@ client.on("guildMemberAdd", async (member) => {
   } catch {}
 });
 
-// ================= PAINEL =================
+// ========= FUNÇÃO PAINEL =========
 
 async function enviarPainel(guild) {
 
@@ -99,7 +98,13 @@ async function enviarPainel(guild) {
   const embed = new EmbedBuilder()
     .setColor("#5865F2")
     .setTitle("📋 SISTEMA DE REGISTRO")
-    .setDescription("Clique no botão abaixo para se registrar.");
+    .setDescription(
+`Bem-vindo ao sistema de registro do servidor!
+
+Clique no botão abaixo para realizar seu registro.
+
+Em caso de dúvida procure um responsável do setor.`
+    );
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -111,26 +116,24 @@ async function enviarPainel(guild) {
   await canal.send({ embeds: [embed], components: [row] });
 }
 
-// ================= INTERAÇÕES =================
+// ========= INTERAÇÕES =========
 
 client.on("interactionCreate", async (interaction) => {
 
   try {
 
-    // COMANDO /painel
+    // ===== COMANDO /painel =====
     if (interaction.isChatInputCommand()) {
 
       if (interaction.commandName === "painel") {
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.reply({ content: "‎", ephemeral: true });
 
-        await enviarPainel(interaction.guild);
-
-        await interaction.editReply({ content: "‎" }); // invisível
+        enviarPainel(interaction.guild);
       }
     }
 
-    // BOTÃO REGISTRAR
+    // ===== BOTÃO REGISTRAR =====
     if (interaction.isButton() && interaction.customId === "registrar") {
 
       const modal = new ModalBuilder()
@@ -157,49 +160,56 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.showModal(modal);
     }
 
-    // ENVIO REGISTRO
-    if (interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
+    // ===== MODAL ENVIO =====
+    if (interaction.isModalSubmit()) {
 
-      const nick = interaction.fields.getTextInputValue("nick");
-      const cargoNum = interaction.fields.getTextInputValue("cargo");
+      if (interaction.customId === "modalRegistro") {
 
-      const cargoInfo = cargos[cargoNum];
-      if (!cargoInfo) {
-        return interaction.reply({ content: "Cargo inválido.", ephemeral: true });
-      }
+        const nick = interaction.fields.getTextInputValue("nick");
+        const cargoNum = interaction.fields.getTextInputValue("cargo");
 
-      const canal = client.channels.cache.get(LOG_CANAL);
+        const cargoInfo = cargos[cargoNum];
 
-      const embed = new EmbedBuilder()
-        .setColor("#2b2d31")
-        .setTitle("📥 Novo Registro")
-        .addFields(
-          { name: "Usuário", value: `${interaction.user}` },
-          { name: "Nick", value: nick },
-          { name: "Cargo", value: cargoInfo.nome }
+        if (!cargoInfo) {
+          return interaction.reply({
+            content: "Cargo inválido.",
+            ephemeral: true
+          });
+        }
+
+        const canal = client.channels.cache.get(LOG_CANAL);
+
+        const embed = new EmbedBuilder()
+          .setColor("#2b2d31")
+          .setTitle("📥 Novo Registro")
+          .addFields(
+            { name: "Usuário", value: `${interaction.user}` },
+            { name: "Nick", value: nick },
+            { name: "Cargo", value: cargoInfo.nome }
+          );
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
+            .setLabel("Aceitar")
+            .setStyle(ButtonStyle.Success),
+
+          new ButtonBuilder()
+            .setCustomId(`recusar_${interaction.user.id}`)
+            .setLabel("Recusar")
+            .setStyle(ButtonStyle.Danger)
         );
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
-          .setLabel("Aceitar")
-          .setStyle(ButtonStyle.Success),
+        await canal.send({ embeds: [embed], components: [row] });
 
-        new ButtonBuilder()
-          .setCustomId(`recusar_${interaction.user.id}`)
-          .setLabel("Recusar")
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await canal.send({ embeds: [embed], components: [row] });
-
-      await interaction.reply({
-        content: "Registro enviado para aprovação.",
-        ephemeral: true
-      });
+        await interaction.reply({
+          content: "Registro enviado para aprovação.",
+          ephemeral: true
+        });
+      }
     }
 
-    // ACEITAR
+    // ===== ACEITAR =====
     if (interaction.isButton() && interaction.customId.startsWith("aceitar")) {
 
       const [, userId, cargoNum, nick] = interaction.customId.split("_");
@@ -210,7 +220,7 @@ client.on("interactionCreate", async (interaction) => {
       await member.setNickname(`${TAG} ${nick}`).catch(() => {});
       await member.roles.add(cargoInfo.id).catch(() => {});
 
-      // ADMIN ganha MOD automático
+      // ADMIN ganha MOD
       if (cargoNum === "3") {
         await member.roles.add(cargos[2].id).catch(() => {});
       }
@@ -221,7 +231,7 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // RECUSAR
+    // ===== RECUSAR =====
     if (interaction.isButton() && interaction.customId.startsWith("recusar")) {
 
       await interaction.reply({
@@ -236,6 +246,6 @@ client.on("interactionCreate", async (interaction) => {
 
 });
 
-// ================= LOGIN =================
+// ========= LOGIN =========
 
 client.login(TOKEN);
