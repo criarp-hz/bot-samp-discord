@@ -37,7 +37,7 @@ const cargos = {
   6: { nome: "Direção", id: "1472058401394655355", nivel: 6 }
 };
 
-/* PEGAR NIVEL DO ADM */
+/* PEGAR NIVEL */
 function getNivel(member) {
   let nivel = 0;
   for (const key in cargos) {
@@ -104,7 +104,7 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
 
   /* BOTÃO REGISTRAR */
-  if (interaction.customId === "registrar") {
+  if (interaction.isButton() && interaction.customId === "registrar") {
 
     const modal = new ModalBuilder()
       .setCustomId("modalRegistro")
@@ -153,3 +153,78 @@ client.on("interactionCreate", async (interaction) => {
       .addFields(
         { name: "Usuário", value: `${interaction.user}`, inline: true },
         { name: "Nick", value: nick, inline: true },
+        { name: "Cargo", value: cargoInfo.nome, inline: true },
+        { name: "Data", value: dataAtual() }
+      );
+
+    const botoes = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
+        .setLabel("Aceitar")
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(`recusar_${interaction.user.id}`)
+        .setLabel("Recusar")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    await canal.send({ embeds: [embed], components: [botoes] });
+
+    return interaction.reply({
+      content: "✅ Registro enviado para aprovação.",
+      ephemeral: true
+    });
+  }
+
+  /* ACEITAR */
+  if (interaction.isButton() && interaction.customId.startsWith("aceitar_")) {
+
+    const [, userId, cargoNum, nick] = interaction.customId.split("_");
+
+    const member = await interaction.guild.members.fetch(userId);
+    const cargoInfo = cargos[cargoNum];
+
+    if (!member) return;
+
+    /* remover cargos antigos */
+    for (const key in cargos) {
+      if (member.roles.cache.has(cargos[key].id)) {
+        await member.roles.remove(cargos[key].id);
+      }
+    }
+
+    /* adicionar cargo principal */
+    await member.roles.add(cargoInfo.id);
+
+    /* CASCATA ADMIN → MOD */
+    if (cargoNum >= 3) {
+      await member.roles.add(cargos[2].id);
+    }
+
+    /* nick */
+    try {
+      await member.setNickname(`${TAG} ${nick}`);
+    } catch {}
+
+    await interaction.reply({
+      content: `✅ Registro aprovado para ${member.user.tag}`
+    });
+  }
+
+  /* RECUSAR */
+  if (interaction.isButton() && interaction.customId.startsWith("recusar_")) {
+
+    const [, userId] = interaction.customId.split("_");
+
+    const member = await interaction.guild.members.fetch(userId);
+
+    await interaction.reply({
+      content: `❌ Registro recusado para ${member.user.tag}`
+    });
+  }
+
+});
+
+/* LOGIN */
+client.login(TOKEN);
