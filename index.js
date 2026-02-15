@@ -7,9 +7,11 @@ const {
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle,
-  StringSelectMenuBuilder
+  TextInputStyle
 } = require("discord.js");
+
+const express = require("express");
+const app = express();
 
 const client = new Client({
   intents: [
@@ -37,18 +39,6 @@ const cargos = {
   6: { nome: "Direção", id: "1472058401394655355", nivel: 6 }
 };
 
-/* PEGAR NIVEL */
-function getNivel(member) {
-  let nivel = 0;
-  for (const key in cargos) {
-    if (member.roles.cache.has(cargos[key].id)) {
-      if (cargos[key].nivel > nivel) nivel = cargos[key].nivel;
-    }
-  }
-  return nivel;
-}
-
-/* DATA */
 function dataAtual() {
   return new Date().toLocaleString("pt-BR");
 }
@@ -85,15 +75,26 @@ Para que tudo funcione corretamente, selecione e utilize apenas o cargo correspo
   await canal.send({ embeds: [embed], components: [botao] });
 }
 
+/* KEEP ONLINE */
+app.get("/", (req, res) => {
+  res.send("Bot online");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Servidor HTTP rodando"));
+
 /* ENTRAR SERVIDOR */
 client.on("guildMemberAdd", async (member) => {
   try {
     await member.roles.add(CARGO_AUTOMATICO);
-  } catch {}
+  } catch (e) {
+    console.log("Erro cargo auto:", e);
+  }
 });
 
 /* BOT ONLINE */
-client.once("ready", async () => {
+client.once("clientReady", async () => {
+
   console.log("Bot Online:", client.user.tag);
 
   const guild = client.guilds.cache.first();
@@ -103,128 +104,135 @@ client.once("ready", async () => {
 /* INTERAÇÕES */
 client.on("interactionCreate", async (interaction) => {
 
-  /* BOTÃO REGISTRAR */
-  if (interaction.isButton() && interaction.customId === "registrar") {
+  try {
 
-    const modal = new ModalBuilder()
-      .setCustomId("modalRegistro")
-      .setTitle("Registro de Membro");
+    /* BOTÃO REGISTRAR */
+    if (interaction.isButton() && interaction.customId === "registrar") {
 
-    const nick = new TextInputBuilder()
-      .setCustomId("nick")
-      .setLabel("NOME DO SEU PERSONAGEM NA CIDADE")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
+      const modal = new ModalBuilder()
+        .setCustomId("modalRegistro")
+        .setTitle("Registro de Membro");
 
-    const cargo = new TextInputBuilder()
-      .setCustomId("cargo")
-      .setLabel("DIGITE O NÚMERO DO SEU CARGO")
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
+      const nick = new TextInputBuilder()
+        .setCustomId("nick")
+        .setLabel("NOME DO SEU PERSONAGEM NA CIDADE")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(nick),
-      new ActionRowBuilder().addComponents(cargo)
-    );
+      const cargo = new TextInputBuilder()
+        .setCustomId("cargo")
+        .setLabel("DIGITE O NÚMERO DO SEU CARGO")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
 
-    return interaction.showModal(modal);
-  }
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(nick),
+        new ActionRowBuilder().addComponents(cargo)
+      );
 
-  /* ENVIAR REGISTRO */
-  if (interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
+      return interaction.showModal(modal);
+    }
 
-    const nick = interaction.fields.getTextInputValue("nick");
-    const cargoNum = interaction.fields.getTextInputValue("cargo");
+    /* ENVIAR REGISTRO */
+    if (interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
 
-    const cargoInfo = cargos[cargoNum];
+      const nick = interaction.fields.getTextInputValue("nick");
+      const cargoNum = interaction.fields.getTextInputValue("cargo");
 
-    if (!cargoInfo) {
+      const cargoInfo = cargos[cargoNum];
+
+      if (!cargoInfo) {
+        return interaction.reply({
+          content: "❌ Cargo inválido.",
+          ephemeral: true
+        });
+      }
+
+      const canal = client.channels.cache.get(APROVACAO_CANAL);
+
+      const embed = new EmbedBuilder()
+        .setColor("#2b2d31")
+        .setTitle("📥 NOVO REGISTRO")
+        .addFields(
+          { name: "Usuário", value: `${interaction.user}`, inline: true },
+          { name: "Nick", value: nick, inline: true },
+          { name: "Cargo", value: cargoInfo.nome, inline: true },
+          { name: "Data", value: dataAtual() }
+        );
+
+      const botoes = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
+          .setLabel("Aceitar")
+          .setStyle(ButtonStyle.Success),
+
+        new ButtonBuilder()
+          .setCustomId(`recusar_${interaction.user.id}`)
+          .setLabel("Recusar")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await canal.send({ embeds: [embed], components: [botoes] });
+
       return interaction.reply({
-        content: "❌ Cargo inválido.",
+        content: "✅ Registro enviado para aprovação.",
         ephemeral: true
       });
     }
 
-    const canal = client.channels.cache.get(APROVACAO_CANAL);
+    /* ACEITAR */
+    if (interaction.isButton() && interaction.customId.startsWith("aceitar_")) {
 
-    const embed = new EmbedBuilder()
-      .setColor("#2b2d31")
-      .setTitle("📥 NOVO REGISTRO")
-      .addFields(
-        { name: "Usuário", value: `${interaction.user}`, inline: true },
-        { name: "Nick", value: nick, inline: true },
-        { name: "Cargo", value: cargoInfo.nome, inline: true },
-        { name: "Data", value: dataAtual() }
-      );
+      const [, userId, cargoNum, nick] = interaction.customId.split("_");
 
-    const botoes = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
-        .setLabel("Aceitar")
-        .setStyle(ButtonStyle.Success),
+      const member = await interaction.guild.members.fetch(userId);
+      const cargoInfo = cargos[cargoNum];
 
-      new ButtonBuilder()
-        .setCustomId(`recusar_${interaction.user.id}`)
-        .setLabel("Recusar")
-        .setStyle(ButtonStyle.Danger)
-    );
+      if (!member) return;
 
-    await canal.send({ embeds: [embed], components: [botoes] });
-
-    return interaction.reply({
-      content: "✅ Registro enviado para aprovação.",
-      ephemeral: true
-    });
-  }
-
-  /* ACEITAR */
-  if (interaction.isButton() && interaction.customId.startsWith("aceitar_")) {
-
-    const [, userId, cargoNum, nick] = interaction.customId.split("_");
-
-    const member = await interaction.guild.members.fetch(userId);
-    const cargoInfo = cargos[cargoNum];
-
-    if (!member) return;
-
-    /* remover cargos antigos */
-    for (const key in cargos) {
-      if (member.roles.cache.has(cargos[key].id)) {
-        await member.roles.remove(cargos[key].id);
+      for (const key in cargos) {
+        if (member.roles.cache.has(cargos[key].id)) {
+          await member.roles.remove(cargos[key].id);
+        }
       }
+
+      await member.roles.add(cargoInfo.id);
+
+      /* CASCATA ADMIN → MOD */
+      if (cargoNum >= 3) {
+        await member.roles.add(cargos[2].id);
+      }
+
+      try {
+        await member.setNickname(`${TAG} ${nick}`);
+      } catch {}
+
+      await interaction.reply({
+        content: `✅ Registro aprovado para ${member.user.tag}`
+      });
     }
 
-    /* adicionar cargo principal */
-    await member.roles.add(cargoInfo.id);
+    /* RECUSAR */
+    if (interaction.isButton() && interaction.customId.startsWith("recusar_")) {
 
-    /* CASCATA ADMIN → MOD */
-    if (cargoNum >= 3) {
-      await member.roles.add(cargos[2].id);
+      const [, userId] = interaction.customId.split("_");
+
+      const member = await interaction.guild.members.fetch(userId);
+
+      await interaction.reply({
+        content: `❌ Registro recusado para ${member.user.tag}`
+      });
     }
 
-    /* nick */
-    try {
-      await member.setNickname(`${TAG} ${nick}`);
-    } catch {}
-
-    await interaction.reply({
-      content: `✅ Registro aprovado para ${member.user.tag}`
-    });
-  }
-
-  /* RECUSAR */
-  if (interaction.isButton() && interaction.customId.startsWith("recusar_")) {
-
-    const [, userId] = interaction.customId.split("_");
-
-    const member = await interaction.guild.members.fetch(userId);
-
-    await interaction.reply({
-      content: `❌ Registro recusado para ${member.user.tag}`
-    });
+  } catch (err) {
+    console.log("Erro interação:", err);
   }
 
 });
+
+/* ANTI CRASH */
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 
 /* LOGIN */
 client.login(TOKEN);
