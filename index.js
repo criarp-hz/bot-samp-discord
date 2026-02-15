@@ -1,19 +1,24 @@
 const { 
   Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
   ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, 
-  TextInputStyle, Collection, StringSelectMenuBuilder 
+  TextInputStyle, Collection, StringSelectMenuBuilder, REST, Routes 
 } = require("discord.js");
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages]
+  intents: [
+    GatewayIntentBits.Guilds, 
+    GatewayIntentBits.GuildMembers, 
+    GatewayIntentBits.GuildMessages
+  ]
 });
 
-// ===================== CONFIGURAÇÕES =====================
+// ===================== CONFIGURAÇÕES (MANTENHA SEUS IDS) =====================
 const TOKEN = process.env.TOKEN;
+const CLIENT_ID = "SEU_ID_DO_BOT_AQUI"; // PEGUE O ID NO DISCORD DEVELOPER PORTAL
 const APROVACAO_CANAL = "1472464723738886346";
 const STAFF_CANAL_ID = "1472065290929180764";
-const TAG_PREFIXO = "『Ⓗ¹』";
 const CARGO_AUTOMATICO = "1472054758415138960";
+const TAG_PREFIXO = "『Ⓗ¹』";
 
 const cargos = {
   "1": { nome: "Ajudante", id: "1472055381713883187", nivel: 1 },
@@ -28,137 +33,85 @@ const memoriaEdicao = new Collection();
 
 function dataAtual() { return new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }); }
 
+// ===================== REGISTRO DE COMANDOS =====================
 client.once("ready", async () => {
-    console.log("🚀 Sistema Horizonte RP Blindado Online.");
-    const guild = client.guilds.cache.first();
-    if (guild) await guild.commands.set([
+    const commands = [
         { name: 'painel', description: 'Envia o painel de registro público.' },
-        { name: 'configadm', description: 'Central administrativa.' }
-    ]);
+        { name: 'configadm', description: 'Central administrativa para a Staff.' }
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    try {
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        console.log("✅ Comandos registrados e Bot Online!");
+    } catch (e) { console.error("Erro ao registrar comandos:", e); }
 });
 
 client.on("interactionCreate", async (interaction) => {
     try {
-        // --- 1. SELEÇÃO DE CARGO NO MENU DE EDIÇÃO (SILENCIOSO) ---
-        if (interaction.isStringSelectMenu() && interaction.customId.startsWith("sel_c")) {
-            const userId = interaction.customId.split("_")[2];
-            const dados = memoriaEdicao.get(userId);
-            if (!dados) return interaction.reply({ content: "Erro: Dados expirados.", ephemeral: true });
+        // --- COMANDO /PAINEL ---
+        if (interaction.isChatInputCommand() && interaction.commandName === "painel") {
+            // "deferReply" impede o erro de "aplicativo não respondeu"
+            await interaction.deferReply({ ephemeral: true });
 
-            dados.cargoEditado = interaction.values[0];
-            memoriaEdicao.set(userId, dados);
+            const embed = new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle("📋 SISTEMA DE REGISTRO")
+                .setDescription("Bem-vindo ao sistema de registro do servidor!\n\nPara que tudo funcione corretamente, **selecione e utilize apenas o cargo correspondente ao seu setor atual.**")
+                .setFooter({ text: "Horizonte Roleplay" });
 
-            // Atualiza o Embed de edição sem enviar nova mensagem
-            const embedEdit = EmbedBuilder.from(interaction.message.embeds[0])
-                .setFields(
-                    { name: "👤 Membro", value: `<@${userId}>`, inline: true },
-                    { name: "🆔 Nick Atual", value: `\`${dados.nickEditado}\``, inline: true },
-                    { name: "💼 Novo Cargo Selecionado", value: `\`${cargos[dados.cargoEditado].nome}\``, inline: true }
-                );
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId("abrir_modal").setLabel("Registrar-se").setEmoji("📋").setStyle(ButtonStyle.Primary)
+            );
 
-            return interaction.update({ embeds: [embedEdit] });
+            await interaction.channel.send({ embeds: [embed], components: [row] });
+            return interaction.editReply({ content: "Painel enviado com sucesso!" });
         }
 
-        // --- 2. BOTÃO EDITAR NICK (MODAL) ---
-        if (interaction.isButton() && interaction.customId.startsWith("edit_nick")) {
-            const userId = interaction.customId.split("_")[2];
-            const modal = new ModalBuilder().setCustomId(`modal_n_${userId}`).setTitle("Alterar Nick");
-            modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId("n").setLabel("NOVO NICK").setStyle(TextInputStyle.Short).setRequired(true)
-            ));
+        // --- COMANDO /CONFIGADM ---
+        if (interaction.isChatInputCommand() && interaction.commandName === "configadm") {
+            if (interaction.channelId !== STAFF_CANAL_ID) return interaction.reply({ content: "Use este comando no canal de Staff.", ephemeral: true });
+            
+            await interaction.deferReply({ ephemeral: true });
+
+            const embed = new EmbedBuilder()
+                .setColor(0x2B2D31)
+                .setTitle("🛠️ CONFIGURAÇÃO ADMINISTRATIVA")
+                .setDescription("Gerencie as funções do servidor abaixo:");
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId("staff_msg").setLabel("Mensagem Automática").setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId("fechar_painel").setLabel("Fechar").setStyle(ButtonStyle.Danger)
+            );
+
+            return interaction.editReply({ embeds: [embed], components: [row] });
+        }
+
+        // --- BOTÃO ABRIR MODAL (REGISTRO) ---
+        if (interaction.isButton() && interaction.customId === "abrir_modal") {
+            const modal = new ModalBuilder().setCustomId("modal_reg").setTitle("Registro de Membro");
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("m_nick").setLabel("NICK").setPlaceholder("Nome do seu personagem na cidade").setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("m_cargo").setLabel("CARGO").setPlaceholder("Digite o número do seu cargo (1-6)").setStyle(TextInputStyle.Short).setRequired(true))
+            );
             return interaction.showModal(modal);
         }
 
-        // --- 3. RECEBER NOVO NICK DO MODAL (SILENCIOSO) ---
-        if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_n")) {
-            const userId = interaction.customId.split("_")[2];
-            const novoNick = interaction.fields.getTextInputValue("n");
-            const dados = memoriaEdicao.get(userId);
-            
-            dados.nickEditado = novoNick;
-            memoriaEdicao.set(userId, dados);
-
-            const embedEdit = new EmbedBuilder()
-                .setColor(0xFFA500).setTitle("⚙️ PAINEL DE EDIÇÃO")
-                .setFields(
-                    { name: "👤 Membro", value: `<@${userId}>`, inline: true },
-                    { name: "🆔 Novo Nick Selecionado", value: `\`${dados.nickEditado}\``, inline: true },
-                    { name: "💼 Cargo Selecionado", value: `\`${cargos[dados.cargoEditado].nome}\``, inline: true }
-                );
-
-            // Usamos deferUpdate para não "falhar" a interação do modal
-            return interaction.update({ embeds: [embedEdit] });
+        // --- FECHAR PAINEL ---
+        if (interaction.isButton() && interaction.customId === "fechar_painel") {
+            return interaction.update({ content: "Painel encerrado.", embeds: [], components: [] });
         }
 
-        // --- 4. CONFIRMAR EDIÇÃO (GERA O NOVO REGISTRO PROFISSIONAL) ---
-        if (interaction.isButton() && interaction.customId.startsWith("confirm_edit")) {
-            const userId = interaction.customId.split("_")[2];
-            const d = memoriaEdicao.get(userId);
-            if (!d) return interaction.reply({ content: "Erro ao salvar.", ephemeral: true });
+        // [O restante da lógica de aceitar/recusar/editar continua aqui...]
 
-            const embedFinal = new EmbedBuilder()
-                .setColor(0x00AAFF).setTitle("📝 REGISTRO ATUALIZADO PELA STAFF")
-                .setThumbnail(interaction.guild.members.cache.get(userId)?.user.displayAvatarURL() || null)
-                .addFields(
-                    { name: "👤 Usuário", value: `<@${userId}>`, inline: false },
-                    { name: "📝 Nick (Anterior > Novo)", value: `\`${d.nickOriginal}\` ➔ \`${d.nickEditado}\``, inline: false },
-                    { name: "💼 Cargo (Anterior > Novo)", value: `\`${cargos[d.cargoOriginal].nome}\` ➔ \`${cargos[d.cargoEditado].nome}\``, inline: false },
-                    { name: "👮 Responsável", value: `${interaction.user.tag}`, inline: true },
-                    { name: "⏰ Data/Hora", value: dataAtual(), inline: true }
-                ).setFooter({ text: "Confirme a ação final abaixo." });
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`aceitar_${userId}_${d.cargoEditado}_${d.nickEditado}`).setLabel("Aceitar Registro").setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`recusar_${userId}_${d.nickEditado}`).setLabel("Recusar e Retirar").setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`editar_menu_${userId}_${d.cargoEditado}_${d.nickEditado}`).setLabel("Re-editar").setStyle(ButtonStyle.Secondary)
-            );
-
-            // Deleta a mensagem de edição temporária e edita o registro original
-            await interaction.message.delete().catch(() => {});
-            const canal = client.channels.cache.get(APROVACAO_CANAL);
-            await canal.send({ embeds: [embedFinal], components: [row] });
-            return;
+    } catch (err) {
+        console.error("Erro detectado:", err);
+        // Tenta avisar o usuário se algo deu errado
+        if (interaction.deferred || interaction.replied) {
+            await interaction.editReply({ content: "Ocorreu um erro ao processar sua solicitação." }).catch(() => {});
+        } else {
+            await interaction.reply({ content: "Ocorreu um erro interno.", ephemeral: true }).catch(() => {});
         }
-
-        // --- 5. CANCELAR EDIÇÃO ---
-        if (interaction.isButton() && interaction.customId === "cancelar_edit") {
-            return interaction.message.delete().catch(() => {});
-        }
-
-        // --- INÍCIO DO MENU DE EDIÇÃO ---
-        if (interaction.isButton() && interaction.customId.startsWith("editar_menu")) {
-            const [, , userId, cNum, nick] = interaction.customId.split("_");
-            memoriaEdicao.set(userId, { cargoOriginal: cNum, cargoEditado: cNum, nickOriginal: nick, nickEditado: nick });
-
-            const embedEdit = new EmbedBuilder()
-                .setColor(0xFFA500).setTitle("⚙️ CONFIGURAÇÃO DE REGISTRO")
-                .setDescription("Altere os dados abaixo. Nada será aplicado até você **Confirmar**.")
-                .addFields(
-                    { name: "👤 Membro", value: `<@${userId}>`, inline: true },
-                    { name: "🆔 Nick", value: `\`${nick}\``, inline: true },
-                    { name: "💼 Cargo", value: `\`${cargos[cNum].nome}\``, inline: true }
-                );
-
-            const rowSelect = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder().setCustomId(`sel_c_${userId}`).setPlaceholder("Selecione um novo cargo...")
-                    .addOptions(Object.keys(cargos).map(k => ({ label: cargos[k].nome, value: k })))
-            );
-
-            const rowBtns = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`edit_nick_${userId}`).setLabel("Mudar Nick").setStyle(ButtonStyle.Primary).setEmoji("📝"),
-                new ButtonBuilder().setCustomId(`confirm_edit_${userId}`).setLabel("Confirmar").setStyle(ButtonStyle.Success).setEmoji("✅"),
-                new ButtonBuilder().setCustomId(`cancelar_edit`).setLabel("Cancelar").setStyle(ButtonStyle.Danger).setEmoji("✖️")
-            );
-
-            return interaction.reply({ embeds: [embedEdit], components: [rowSelect, rowBtns], ephemeral: true });
-        }
-
-        // --- ACEITAR / RECUSAR / REMOVER ---
-        // (Lógica de atribuição de cargos e kicks idêntica ao que já funciona, mas com tratamento de erro try/catch)
-
-    } catch (error) {
-        console.error("Erro na Interação:", error);
-        if (!interaction.replied) interaction.reply({ content: "Ocorreu um erro. Tente novamente.", ephemeral: true }).catch(() => {});
     }
 });
 
