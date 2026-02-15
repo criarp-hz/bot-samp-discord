@@ -1,107 +1,224 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
-const express = require('express');
-const app = express();
-app.use(express.json());
+const {
+    Client,
+    GatewayIntentBits,
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    Events
+} = require('discord.js');
 
-// Variáveis do bot
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = 'SEU_ID_DO_BOT_AQUI';
-const GUILD_ID = 'SEU_ID_DO_SERVIDOR'; // importante para registrar comandos rapidamente
-const CHANNEL_ID = '1472065290929180764';
 
-let messagesForSAMP = [];
-let lastMessageID = 0;
+const REGISTRO_CHANNEL = '1472463885620609180';
+const APROVACAO_CHANNEL = '1472464723738886346';
+const AUTO_ROLE = '1472054758415138960';
 
-// Inicializa bot Discord
-let client;
+const ROLES = {
+    1: '1472055381713883187',
+    2: '1472055978911465673',
+    3: '1472056709349511263',
+    4: '1472057320799338639',
+    5: '1472058121529593906',
+    6: '1472058401394655355'
+};
 
-function startBot() {
-    client = new Client({ 
-        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
-    });
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages
+    ]
+});
 
-    // Registrar comandos de Slash Commands
-    async function registerCommands() {
-        const commands = [
-            new SlashCommandBuilder().setName('mshz').setDescription('Ligar integracao'),
-            new SlashCommandBuilder()
-                .setName('ms')
-                .setDescription('Enviar comando ao jogo')
-                .addStringOption(opt => opt.setName('texto').setDescription('Mensagem ou /comando').setRequired(true))
-        ].map(cmd => cmd.toJSON());
 
-        const rest = new REST({ version: '10' }).setToken(TOKEN);
-        try {
-            console.log('[Bot] Registrando comandos...');
-            await rest.put(
-                Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-                { body: commands }
-            );
-            console.log('[Bot] Comandos registrados com sucesso!');
-        } catch (err) {
-            console.error('[Bot] Erro ao registrar comandos:', err);
-        }
+// =========================
+// CARGO AUTOMÁTICO AO ENTRAR
+// =========================
+
+client.on(Events.GuildMemberAdd, async member => {
+    try {
+        await member.roles.add(AUTO_ROLE);
+    } catch (e) {
+        console.log('Erro auto role', e);
+    }
+});
+
+
+// =========================
+// BOT ONLINE
+// =========================
+
+client.once('ready', () => {
+    console.log(`✅ Bot online ${client.user.tag}`);
+});
+
+
+// =========================
+// INTERAÇÕES
+// =========================
+
+client.on(Events.InteractionCreate, async interaction => {
+
+    // BOTÃO REGISTRAR
+    if (interaction.isButton() && interaction.customId === 'registrar') {
+
+        const modal = new ModalBuilder()
+            .setCustomId('formRegistro')
+            .setTitle('Registro de Membro');
+
+        const nick = new TextInputBuilder()
+            .setCustomId('nick')
+            .setLabel('Nick')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const cargo = new TextInputBuilder()
+            .setCustomId('cargo')
+            .setLabel('Cargo (1 até 6)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(nick),
+            new ActionRowBuilder().addComponents(cargo)
+        );
+
+        return interaction.showModal(modal);
     }
 
-    // Interações Slash Commands
-    client.on('interactionCreate', async interaction => {
-        if (!interaction.isChatInputCommand()) return;
 
-        await interaction.reply({ content: '✅ Processando...', ephemeral: true });
+    // ENVIO FORMULÁRIO
+    if (interaction.isModalSubmit() && interaction.customId === 'formRegistro') {
 
-        if (interaction.commandName === 'mshz') {
-            await interaction.followUp({ content: '🔗 Integração ativada!', ephemeral: true });
-        } else if (interaction.commandName === 'ms') {
-            const msg = interaction.options.getString('texto');
-            messagesForSAMP.push({ id: ++lastMessageID, text: msg });
-            await interaction.followUp({ content: `💬 Enviado: ${msg}`, ephemeral: true });
+        const nick = interaction.fields.getTextInputValue('nick');
+        const cargoNum = interaction.fields.getTextInputValue('cargo');
+
+        if (!ROLES[cargoNum]) {
+            return interaction.reply({
+                content: '❌ Cargo inválido.',
+                ephemeral: true
+            });
         }
-    });
 
-    // Endpoint para receber mensagens do SAMP via Lua
-    app.post('/message', (req, res) => {
+        const embed = new EmbedBuilder()
+            .setTitle('📋 Novo Registro')
+            .setColor('Yellow')
+            .addFields(
+                { name: 'Usuário', value: `<@${interaction.user.id}>` },
+                { name: 'Nick', value: nick },
+                { name: 'Cargo', value: cargoNum }
+            );
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`aceitar_${interaction.user.id}_${cargoNum}_${nick}`)
+                .setLabel('Aceitar')
+                .setStyle(ButtonStyle.Success),
+
+            new ButtonBuilder()
+                .setCustomId(`recusar_${interaction.user.id}`)
+                .setLabel('Recusar')
+                .setStyle(ButtonStyle.Danger)
+        );
+
+        const canal = client.channels.cache.get(APROVACAO_CHANNEL);
+        canal.send({ embeds: [embed], components: [row] });
+
+        interaction.reply({
+            content: '✅ Registro enviado para aprovação.',
+            ephemeral: true
+        });
+    }
+
+
+    // ACEITAR
+    if (interaction.isButton() && interaction.customId.startsWith('aceitar')) {
+
+        const data = interaction.customId.split('_');
+        const userId = data[1];
+        const cargoNum = data[2];
+        const nick = data.slice(3).join('_');
+
+        const member = await interaction.guild.members.fetch(userId);
+
+        const roleId = ROLES[cargoNum];
+
+        await member.roles.add(roleId);
+
+        await member.setNickname(`『Ⓗ¹』${nick}`);
+
         try {
-            const channel = client.channels.cache.get(CHANNEL_ID);
-            if(channel) channel.send(`💬 **[SAMP]**: ${req.body.text}`);
-            res.sendStatus(200);
-        } catch(e) {
-            console.error('[Bot] Erro no POST /message:', e);
-            res.sendStatus(500);
-        }
-    });
+            member.send('✅ Seu registro foi aprovado!');
+        } catch { }
 
-    // Endpoint para o Lua buscar novas mensagens
-    app.get('/fetch', (req, res) => {
+        interaction.update({
+            content: '✅ Registro aprovado',
+            embeds: [],
+            components: []
+        });
+    }
+
+
+    // RECUSAR
+    if (interaction.isButton() && interaction.customId.startsWith('recusar')) {
+
+        const userId = interaction.customId.split('_')[1];
+
+        const member = await interaction.guild.members.fetch(userId);
+
         try {
-            res.json({ messages: messagesForSAMP });
-            messagesForSAMP = [];
-        } catch(e) {
-            console.error('[Bot] Erro no GET /fetch:', e);
-            res.json({ messages: [] });
-        }
-    });
+            member.send('❌ Seu registro foi recusado. Se acha que foi erro envie novamente.');
+        } catch { }
 
-    // Tenta logar e reconectar automaticamente
-    client.login(TOKEN).then(() => {
-        console.log('[Bot] Bot online:', client.user.tag);
+        interaction.update({
+            content: '❌ Registro recusado',
+            embeds: [],
+            components: []
+        });
+    }
 
-        registerCommands().catch(console.error);
+});
 
-        // Só inicia servidor HTTP depois do bot online
-        const PORT = process.env.PORT || 3000;
-        app.listen(PORT, () => console.log(`[Bot] Servidor HTTP rodando na porta ${PORT}`));
-    }).catch(err => {
-        console.error('[Bot] Falha ao logar:', err);
-        console.log('[Bot] Tentando reconectar em 10 segundos...');
-        setTimeout(startBot, 10000); // reconecta se falhar
-    });
 
-    // Reconectar automaticamente se cair
-    client.on('shardDisconnect', () => {
-        console.warn('[Bot] Conexão perdida! Reconectando...');
-        setTimeout(startBot, 5000);
-    });
-}
+// =========================
+// COMANDO PARA ENVIAR PAINEL
+// =========================
 
-// Inicia o bot pela primeira vez
-startBot();
+client.on(Events.MessageCreate, async msg => {
+
+    if (msg.content === '!painel') {
+
+        const embed = new EmbedBuilder()
+            .setTitle('📋 SISTEMA DE REGISTRO')
+            .setDescription(`
+Bem-vindo ao sistema de registro do servidor!
+
+Para que tudo funcione corretamente, selecione e utilize apenas o cargo correspondente ao seu setor atual.
+
+⚠️ Usar cargo incorreto pode causar:
+• Erros no registro
+• Problemas de permissão
+• Penalidades administrativas
+
+✅ Em caso de dúvida, procure um responsável do seu setor.
+`)
+            .setColor('#5865F2');
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('registrar')
+                .setLabel('Registrar-se')
+                .setStyle(ButtonStyle.Primary)
+        );
+
+        msg.channel.send({ embeds: [embed], components: [row] });
+    }
+
+});
+
+
+client.login(TOKEN);
