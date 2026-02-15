@@ -43,6 +43,20 @@ function dataAtual() {
   return new Date().toLocaleString("pt-BR");
 }
 
+function getNivel(member) {
+  let nivel = 0;
+  for (const key in cargos) {
+    if (member.roles.cache.has(cargos[key].id)) {
+      if (cargos[key].nivel > nivel) nivel = cargos[key].nivel;
+    }
+  }
+  return nivel;
+}
+
+/* KEEP ONLINE */
+app.get("/", (req, res) => res.send("Online"));
+app.listen(process.env.PORT || 3000);
+
 /* PAINEL */
 async function enviarPainel(guild) {
 
@@ -75,28 +89,16 @@ Para que tudo funcione corretamente, selecione e utilize apenas o cargo correspo
   await canal.send({ embeds: [embed], components: [botao] });
 }
 
-/* KEEP ONLINE */
-app.get("/", (req, res) => {
-  res.send("Bot online");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Servidor HTTP rodando"));
-
-/* ENTRAR SERVIDOR */
+/* ENTRAR */
 client.on("guildMemberAdd", async (member) => {
   try {
     await member.roles.add(CARGO_AUTOMATICO);
-  } catch (e) {
-    console.log("Erro cargo auto:", e);
-  }
+  } catch {}
 });
 
-/* BOT ONLINE */
+/* READY */
 client.once("clientReady", async () => {
-
   console.log("Bot Online:", client.user.tag);
-
   const guild = client.guilds.cache.first();
   if (guild) enviarPainel(guild);
 });
@@ -111,7 +113,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const modal = new ModalBuilder()
         .setCustomId("modalRegistro")
-        .setTitle("Registro de Membro");
+        .setTitle("Registro");
 
       const nick = new TextInputBuilder()
         .setCustomId("nick")
@@ -136,17 +138,13 @@ client.on("interactionCreate", async (interaction) => {
     /* ENVIAR REGISTRO */
     if (interaction.isModalSubmit() && interaction.customId === "modalRegistro") {
 
+      await interaction.reply({ content: "📨 Registro enviado!", ephemeral: true });
+
       const nick = interaction.fields.getTextInputValue("nick");
       const cargoNum = interaction.fields.getTextInputValue("cargo");
-
       const cargoInfo = cargos[cargoNum];
 
-      if (!cargoInfo) {
-        return interaction.reply({
-          content: "❌ Cargo inválido.",
-          ephemeral: true
-        });
-      }
+      if (!cargoInfo) return;
 
       const canal = client.channels.cache.get(APROVACAO_CANAL);
 
@@ -167,28 +165,35 @@ client.on("interactionCreate", async (interaction) => {
           .setStyle(ButtonStyle.Success),
 
         new ButtonBuilder()
+          .setCustomId(`editar_${interaction.user.id}_${nick}`)
+          .setLabel("Editar")
+          .setStyle(ButtonStyle.Secondary),
+
+        new ButtonBuilder()
           .setCustomId(`recusar_${interaction.user.id}`)
           .setLabel("Recusar")
           .setStyle(ButtonStyle.Danger)
       );
 
       await canal.send({ embeds: [embed], components: [botoes] });
-
-      return interaction.reply({
-        content: "✅ Registro enviado para aprovação.",
-        ephemeral: true
-      });
     }
 
     /* ACEITAR */
     if (interaction.isButton() && interaction.customId.startsWith("aceitar_")) {
 
+      await interaction.deferReply({ ephemeral: true });
+
       const [, userId, cargoNum, nick] = interaction.customId.split("_");
 
       const member = await interaction.guild.members.fetch(userId);
+      const admNivel = getNivel(interaction.member);
       const cargoInfo = cargos[cargoNum];
 
-      if (!member) return;
+      if (!member || !cargoInfo) return;
+
+      if (cargoInfo.nivel > admNivel) {
+        return interaction.editReply("❌ Você não pode aprovar cargo maior que o seu.");
+      }
 
       for (const key in cargos) {
         if (member.roles.cache.has(cargos[key].id)) {
@@ -198,7 +203,6 @@ client.on("interactionCreate", async (interaction) => {
 
       await member.roles.add(cargoInfo.id);
 
-      /* CASCATA ADMIN → MOD */
       if (cargoNum >= 3) {
         await member.roles.add(cargos[2].id);
       }
@@ -207,25 +211,54 @@ client.on("interactionCreate", async (interaction) => {
         await member.setNickname(`${TAG} ${nick}`);
       } catch {}
 
-      await interaction.reply({
-        content: `✅ Registro aprovado para ${member.user.tag}`
-      });
+      await interaction.editReply(`✅ Registro aprovado para ${member.user.tag}`);
+    }
+
+    /* EDITAR */
+    if (interaction.isButton() && interaction.customId.startsWith("editar_")) {
+
+      const [, userId] = interaction.customId.split("_");
+
+      const modal = new ModalBuilder()
+        .setCustomId(`editarModal_${userId}`)
+        .setTitle("Editar Registro");
+
+      const nick = new TextInputBuilder()
+        .setCustomId("nick")
+        .setLabel("Novo Nick")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const cargo = new TextInputBuilder()
+        .setCustomId("cargo")
+        .setLabel("Novo Cargo (Número)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(nick),
+        new ActionRowBuilder().addComponents(cargo)
+      );
+
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("editarModal_")) {
+
+      await interaction.reply({ content: "✏️ Alterações salvas.", ephemeral: true });
     }
 
     /* RECUSAR */
     if (interaction.isButton() && interaction.customId.startsWith("recusar_")) {
 
-      const [, userId] = interaction.customId.split("_");
-
-      const member = await interaction.guild.members.fetch(userId);
-
       await interaction.reply({
-        content: `❌ Registro recusado para ${member.user.tag}`
+        content: "❌ Registro recusado.",
+        ephemeral: true
       });
     }
 
   } catch (err) {
-    console.log("Erro interação:", err);
+    console.log("ERRO:", err);
   }
 
 });
