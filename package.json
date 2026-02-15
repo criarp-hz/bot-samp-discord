@@ -1,7 +1,6 @@
 {
-  "name": "hz-bot",
+  "name": "hz-system",
   "version": "1.0.0",
-  "description": "Sistema Staff",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
